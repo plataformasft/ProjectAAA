@@ -10,9 +10,9 @@ import plotly.express as px
 
 
 df = pd.DataFrame([
-    dict(Task="Role Selection", Start='2009-01-01', Finish='2009-02-28', Completion_pct=50),
-    dict(Task="First Meeting", Start='2009-03-05', Finish='2009-04-15', Completion_pct=25),
-    dict(Task="Project Proposal", Start='2009-02-20', Finish='2009-05-30', Completion_pct=75)
+    dict(Task="Role Selection", Start='2023-09-05', Finish='2023-09-13', Completion_pct=100),
+    dict(Task="First Meeting", Start='2023-09-19', Finish='2023-09-20', Completion_pct=100),
+    dict(Task="Project Proposal", Start='2023-10-02', Finish='2023-10-10', Completion_pct=75)
 ])
 
 edited_df = stm.data_editor(df, num_rows="dynamic")
