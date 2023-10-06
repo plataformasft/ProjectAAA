@@ -16,7 +16,7 @@ df = pd.DataFrame([
 ])
 
 edited_df = stm.data_editor(df, num_rows="dynamic")
-stm.markdown(f"Your favorite command is  🎈")
+# stm.markdown(f"Your favorite command is  🎈")
 
 fig = px.timeline(edited_df, x_start="Start", x_end="Finish", y="Task", color="Completion_pct")
 fig.update_yaxes(autorange="reversed")
