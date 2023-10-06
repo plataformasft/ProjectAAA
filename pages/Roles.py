@@ -3,7 +3,7 @@
 import streamlit as stm
 
 stm.title("This is Roles page.")
-stm.Header("Members.")
+stm.header("Members.")
 stm.markdown("1. Shakawat Hossain"
              "2. Tristan Schwartz"
              "3. Sai Suresh Marreddy"
