@@ -7,6 +7,7 @@ stm.title("This is a Gant Chart.")
 stm.sidebar.success("Select Any Page from here")
 
 import plotly.express as px
+import plotly.figure_factory as ff
 
 
 df = pd.DataFrame([
@@ -18,6 +19,6 @@ df = pd.DataFrame([
 edited_df = stm.data_editor(df, num_rows="dynamic")
 # stm.markdown(f"Your favorite command is  🎈")
 
-fig = px.timeline(edited_df, x_start="Start", x_end="Finish", y="Task", color="Completion_pct")
+fig = ff.create_gantt(edited_df)
 fig.update_yaxes(autorange="reversed")
 stm.plotly_chart(fig, use_container_width=True)
