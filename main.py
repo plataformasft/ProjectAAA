@@ -13,6 +13,38 @@ import plotly.graph_objects as go  # Importar para usar objetos gráficos
 from google.cloud import bigquery
 from google.oauth2 import service_account
 import uuid
+
+################################################################
+# Asegúrate de que google-cloud-bigquery esté instalado
+required_packages = [
+    'google-cloud-bigquery',
+    'google-auth',
+    'google-api-core',
+    'google-cloud-core',
+    'google-crc32c',
+    'google-resumable-media',
+    'googleapis-common-protos',
+    'grpcio',
+    'grpcio-status',
+    'proto-plus',
+    'pyasn1',
+    'pyasn1-modules',
+    'rsa'
+]
+
+for package in required_packages:
+    try:
+        __import__(package)
+    except ImportError:
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', package])
+
+from google.cloud import bigquery
+from google.oauth2 import service_account
+
+################################################################
+
+
+
 # CSS para personalizar la ubicación de la imagen
 st.markdown("""
 <style>
