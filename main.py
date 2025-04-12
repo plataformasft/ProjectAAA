@@ -191,4 +191,4 @@ with p4:
         df_consolidada = pd.DataFrame(tn_consolidada)
         st.dataframe(df_consolidada, use_container_width=True)
     else:
-        st.info("Aún no se han registrado datos en ninguna piscina."))
+        st.info("Aún no se han registrado datos en ninguna piscina.")
