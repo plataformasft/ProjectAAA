@@ -1,501 +1,194 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import datetime
-from datetime import date
 from datetime import datetime
-import logging
-import os
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-from datetime import date
-import plotly.express as px  # Importar Plotly Express para gráficos
-import plotly.graph_objects as go  # Importar para usar objetos gráficos
-from google.cloud import bigquery
-from google.oauth2 import service_account
-import uuid
 
-################################################################
-# Asegúrate de que google-cloud-bigquery esté instalado
-required_packages = [
-    'google-cloud-bigquery',
-    'google-auth',
-    'google-api-core',
-    'google-cloud-core',
-    'google-crc32c',
-    'google-resumable-media',
-    'googleapis-common-protos',
-    'grpcio',
-    'grpcio-status',
-    'proto-plus',
-    'pyasn1',
-    'pyasn1-modules',
-    'rsa'
-]
+# Función para calcular biomasa raleada y total
+def generar_primera_fila_TN(tp):
+    fecha_siembra = datetime.strptime(tp["Fecha siembra"], "%Y-%m-%d")
+    peso_inicial = tp["Peso transferencia (g)"]
+    densidad = tp["Densidad siembra (i/m2)"]
+    dens_raleada = 0
+    supervivencia = 100.0
 
-for package in required_packages:
-    try:
-        __import__(package)
-    except ImportError:
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', package])
+    biomasa_lb_ha = peso_inicial * densidad * 10000 * (supervivencia / 100) / 453.6
+    biomasa_raleada = dens_raleada * peso_inicial * 22
 
-from google.cloud import bigquery
-from google.oauth2 import service_account
-
-################################################################
-
-
-
-# CSS para personalizar la ubicación de la imagen
-st.markdown("""
-<style>
-.sidebar .sidebar-content {
-    padding-top: 150px;  # Aumenta el espacio en la parte superior del sidebar para acomodar la imagen
-}
-.sidebar img {
-    width: 80%;  # Ajusta el ancho de la imagen a 80% del ancho del sidebar
-    margin-left: auto;  # Centra la imagen horizontalmente
-    margin-right: auto;
-    display: block;  # Asegura que la imagen se trate como bloque y no como inline
-}
-</style>
-""", unsafe_allow_html=True)
-# Ruta a la imagen, ajusta según tu ubicación de archivo o URL
-image_path = "vitapro_2.png"
-# Coloca la imagen en el sidebar
-# Colocar la imagen en el sidebar con un ancho específico
-st.sidebar.image(image_path, width=250)  # Ajusta el ancho a 150 píxeles
-
-# Configura tus credenciales de GCP
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "appshandler-423416-66f6cb588a32.json"
-# Configuración de credenciales y cliente de BigQuery
-credentials = service_account.Credentials.from_service_account_file(
-    "appshandler-423416-66f6cb588a32.json"  # Cambia a tu archivo JSON de credenciales
-)
-client = bigquery.Client(credentials=credentials, project=credentials.project_id)
-
-def load_data():
-    query = """
-    SELECT * FROM `appshandler-423416.BigQueryAppHandler.listaprueba`
-    """
-    return client.query(query).to_dataframe()
-
-def upload_to_bigquery(dataset_id, table_id, data):
-    """Sube datos actualizados a Google BigQuery."""
-    table_full_path = f"{client.project}.{dataset_id}.{table_id}"
-    job = client.load_table_from_dataframe(data, table_full_path)
-    job.result()
-    return "Datos cargados a BigQuery exitosamente!" if job.errors is None else f"Errores durante la carga: {job.errors}"
-
-def get_next_label(fechainicio):
-    year = fechainicio.year
-    if 'label_count' not in st.session_state or st.session_state.label_year != year:
-        st.session_state.label_count = 1
-        st.session_state.label_year = year
-    else:
-        st.session_state.label_count += 1
-    letter = chr(64 + st.session_state.label_count) if st.session_state.label_count <= 26 else chr(64 + (st.session_state.label_count % 26))
-    quarter = (fechainicio.month - 1) // 3 + 1
-    return f"{year}Q{quarter}{letter}"
-
-# Diccionario que mapea CEAs a sus salas correspondientes
-cea_to_salas = {
-    "Tumbes": ["a", "b", "c", "d", "e", "s8t"],
-    "Trujillo": ["trujillo"],
-    "UCSUR": ["ucsur"]
-}
-
-
-#def check_sala_availability(data, cea_to_salas, current_date):
-#    current_timestamp = pd.Timestamp(current_date)
-#    data = data.sort_values(by=['sala', 'fechafinal'], ascending=[True, False])
-#    data['fechafinal'] = pd.to_datetime(data['fechafinal'])
-#    data['fechainicio'] = pd.to_datetime(data['fechainicio'])
-
-    # Determinar disponibilidad y estado
-#    data['disponible'] = data.apply(
-#        lambda row: "No Disponible" if row['fechainicio'] <= current_timestamp <= row['fechafinal'] else "Disponible", axis=1
-#    )
-#    data['estado'] = data.apply(
-#        lambda row: "En curso" if row['fechainicio'] <= current_timestamp <= row['fechafinal'] else "Programado" if row['fechainicio'] > current_timestamp else "Finalizado", axis=1
-#    )
-
-#    all_salas = []
-#    for cea, salas in cea_to_salas.items():
-#        for sala in salas:
-#            if sala in data['sala'].values:
-#                sala_data = data[data['sala'] == sala].iloc[0]
-#                all_salas.append({
-#                    'cea': cea,
-#                    'sala': sala,
-#                    'estado': sala_data['estado'],
-#                    'disponible': sala_data['disponible']
-#                })
-#            else:
-#                all_salas.append({
-#                    'cea': cea,
-#                    'sala': sala,
-#                    'estado': 'Libre',
-#                    'disponible': 'Disponible'
-#                })
-#    return pd.DataFrame(all_salas)
-
-def check_sala_availability(data, cea_to_salas, current_date):
-    current_timestamp = pd.Timestamp(current_date)
-    data = data.sort_values(by=['sala', 'fechafinal'], ascending=[True, False])
-    data['fechafinal'] = pd.to_datetime(data['fechafinal'])
-    data['fechainicio'] = pd.to_datetime(data['fechainicio'])
-
-    # Determinar estado y disponibilidad
-    data['estado'] = data.apply(
-        lambda row: "En curso" if row['fechainicio'] <= current_timestamp <= row['fechafinal']
-                    else "Programado" if row['fechainicio'] > current_timestamp
-                    else "Finalizado", axis=1
-    )
-    data['disponible'] = data.apply(
-        lambda row: "No Disponible" if row['estado'] in ["En curso", "Programado"] else "Disponible", axis=1
-    )
-
-    all_salas = []
-    for cea, salas in cea_to_salas.items():
-        for sala in salas:
-            if sala in data['sala'].values:
-                # Tomar la información de la última prueba de la sala
-                sala_data = data[data['sala'] == sala].iloc[0]
-                all_salas.append({
-                    'cea': cea,
-                    'sala': sala,
-                    'estado': sala_data['estado'],
-                    'disponible': sala_data['disponible'],
-                    'fecha_inicio_ultima_prueba': sala_data['fechainicio'].date(),  # Convertir a formato de fecha
-                    'prueba': sala_data['prueba'],  # Asumiendo que 'prueba' es una columna en tu DataFrame
-                    'etiqueta': sala_data.get('etiqueta', 'Default')  # Suponiendo que 'etiqueta' es opcional
-                })
-            else:
-                # Si no hay datos de pruebas para una sala, rellenar con valores predeterminados
-                all_salas.append({
-                    'cea': cea,
-                    'sala': sala,
-                    'estado': 'Libre',
-                    'disponible': 'Disponible',
-                    'fecha_inicio_ultima_prueba': None,  # Mantener como None si no hay fecha
-                    'prueba': 'Ninguna',  # Valor predeterminado para pruebas
-                    'etiqueta': 'Sin Datos'  # Valor predeterminado para etiqueta
-                })
-    return pd.DataFrame(all_salas)
-
-# Extraer la última fecha de prueba para cada sala seleccionada
-def get_last_test_dates(data):
-    # Supongamos que 'data' tiene una columna 'fechafinal' que indica la fecha final de cada prueba
-    last_test_dates = data.groupby('sala')['fechafinal'].max().reset_index()
-    last_test_dates.rename(columns={'fechafinal': 'fecha_ultima_prueba'}, inplace=True)
-    return last_test_dates
-
-# Selección de la página
-page = st.sidebar.selectbox('Selecciona la página', ['📝 Ingreso de datos','🌍 Disponibilidad de salas', '📊 Dashboard'])
-
-def get_filtered_options(column, data, filter_column=None, filter_value=None):
-    if filter_column and filter_value:
-        filtered_data = data[data[filter_column] == filter_value]
-    else:
-        filtered_data = data
-    return ['All'] + sorted(filtered_data[column].dropna().unique().tolist())
-
-
-if page == '📝 Ingreso de datos':
-    # Página de entrada de datos
-    st.header("Registro de datos 🤖")
-    # Agregando un párrafo debajo del encabezado
-    st.write("Por favor, ingresa los datos necesarios en el formulario a continuación para continuar con el registro.")
-    if 'data' not in st.session_state:
-        st.session_state.data = pd.DataFrame({
-            "cea": [], "sala": [], "prueba": [], "estado": [],
-            "fechasiembre": [], "fechainicio": [], "fechafinal": [],
-            "empresa": [], "dieta": [], "tratamiento": [], "etiqueta": [],
-        })
-
-    #cea = st.text_input("CEA")
-    #cea = st.selectbox("CEA", ["tumbes", "trujillo", "ucsur"])
-    # Simulación de datos: diccionario que mapea CEAs a una lista de salas
-    # Diccionario que mapea CEAs a sus salas correspondientes
-    cea_to_salas = {
-        "tumbes": ["a", "b", "c", "d", "e", "s8t"],
-        "trujillo": ["trujillo"],
-        "ucsur": ["ucsur"]
+    return {
+        "Piscina": tp["Piscina"],
+        "# Día": 1,
+        "Fecha": fecha_siembra.strftime("%d/%m/%y"),
+        "Día": fecha_siembra.strftime("%A"),
+        "Peso proyecto (g)": peso_inicial,
+        "Crecimiento lineal (g/día)": 0.00,
+        "Supervivencia base (%)": supervivencia,
+        "Densidad (i/m2)": densidad,
+        "Dens. Raleada (i/m2)": dens_raleada,
+        "Dens. Raleada Acum. (i/m2)": 0,
+        "Biomasa raleada (lb/Ha)": biomasa_raleada,
+        "Biomasa (lb/Ha)": round(biomasa_lb_ha, 2),
+        "% Peso Corporal": 7.61,
+        "Alimento (Kg/día)": 50,
+        "Alimento (Kg/Ha)": 30.67,
+        "Tipo de alimento": tp["Tabla de alimentación"],
+        "Alimento Acumulado (kg)": 50,
+        "FCA": "",
+        "Costo AB ($/día)": 72.00,
+        "Costo AB Acumulado ($)": 72.00,
+        "Costo Total ($)": 3675.93,
+        "Costo Biomasa ($/Lb)": 2.56,
+        "Venta raleo ($)": 0.00,
+        "Ingresos total ($)": 0.00,
+        "UP ($/Ha/día)": -2255.17,
+        "ROI": "-100%",
+        "Costo mix AB ($/kg)": 1.44
     }
 
-    # Selección del CEA usando un desplegable en Streamlit
-    cea = st.selectbox("Seleccione el CEA", list(cea_to_salas.keys()))
+# Estado inicial
+if "datos_tp" not in st.session_state:
+    st.session_state.datos_tp = {}
 
-    # Una vez seleccionado el CEA, mostrar un desplegable con las salas correspondientes
-    salas_options = cea_to_salas[cea]  # Obtener las salas para el CEA seleccionado
-    #sala = st.selectbox("Seleccione la Sala", salas_options)
+# Pestañas
+#p1, p2 = st.tabs(["1. Configurar ITA", "2. Registrar TP y Generar TN"])
+#p1, p2, p3 = st.tabs(["1. Configurar ITA", "2. Registrar TP y Generar TN", "3. Tabla de Alimentación"])
+p1, p2, p3, p4 = st.tabs([
+    "1. Configurar ITA",
+    "2. Registrar TP y Generar TN",
+    "3. Tabla de Alimentación",
+    "4. Consolidado"
+])
 
-    #sala = st.text_input("Sala")
-    sala = st.selectbox("Sala", ["Seleccione sala"] + salas_options)
-    prueba = st.text_input("Nombre de la prueba")
-    estado = st.selectbox("Estado",["prueba programada","prueba en curso","prueba finalizada"])
-    #etiqueta = st.text_input("Etiqueta de la prueba")
-    fechasiembre = st.date_input("Fecha de siembra")
-    fechainicio = st.date_input("Fecha de inicio")
-    fechafinal = st.date_input("Fecha final")
+with p1:
+    st.header("Paso 1: Configurar Informe ITA")
+    st.session_state.nombre_ita = st.text_input("Nombre del ITA", "ITA-TECH-EG-2025-01")
+    piscinas_disponibles = [f"P{i}" for i in range(1, 13)]
+    st.session_state.piscinas_seleccionadas = st.multiselect("Selecciona las piscinas a registrar", piscinas_disponibles)
+    if st.session_state.piscinas_seleccionadas:
+        st.success("Piscinas seleccionadas. Ve a la siguiente pestaña.")
 
-    data_entries = st.text_area("Ingrese Empresa, Dieta, Tratamiento separados por comas (una línea por entrada)")
-
-    if st.button("Añadir al Registro"):
-        entries = data_entries.split('\n')
-        new_rows = []
-        for entry in entries:
-            try:
-                empresa, dieta, tratamiento = [x.strip() for x in entry.split(',')]
-                etiqueta = get_next_label(fechainicio)
-                new_row = {
-                    "id": str(uuid.uuid4()),  # Generar un ID único para cada fila
-                    "cea": cea,
-                    "sala": sala,
-                    "prueba": prueba,
-                    "estado": estado,
-                    "fechasiembre": pd.to_datetime(fechasiembre, format='%d/%m/%Y', errors='coerce').normalize(),
-                    "fechainicio": pd.to_datetime(fechainicio, format='%d/%m/%Y', errors='coerce').normalize(),
-                    "fechafinal": pd.to_datetime(fechafinal, format='%d/%m/%Y', errors='coerce').normalize(),
-                    "empresa": empresa,
-                    "dieta": dieta,
-                    "tratamiento": tratamiento,
-                    "etiqueta": etiqueta
-                }
-                new_rows.append(new_row)
-            except ValueError:
-                st.error("Asegúrese de que cada línea tenga exactamente tres elementos separados por comas.")
-        if new_rows:
-            new_df = pd.DataFrame(new_rows)
-            st.session_state.data = pd.concat([st.session_state.data, new_df], ignore_index=True)
-
-    ############################################################################################################
-    # Mostrar el DataFrame y permitir la eliminación de registros
-    st.dataframe(st.session_state.data)
-    selected_indices = st.multiselect("Seleccionar registros para eliminar (por ID)", st.session_state.data.index)
-    if st.button("Eliminar Registros Seleccionados"):
-        st.session_state.data = st.session_state.data.drop(selected_indices)
-        st.session_state.data.reset_index(drop=True, inplace=True)
-    ############################################################################################################
-
-    if st.button("Enviar a BigQuery"):
-        if not st.session_state.data.empty:
-            table_id = "appshandler-423416.BigQueryAppHandler.listaprueba"
-            job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-            job = client.load_table_from_dataframe(st.session_state.data, table_id, job_config=job_config)
-            job.result()
-            st.success("Datos enviados con éxito a BigQuery")
-            st.session_state.data = pd.DataFrame(columns=st.session_state.data.columns)
-        else:
-            st.error("El DataFrame está vacío. Añada datos antes de enviar.")
-
-
- # Muestra el DataFrame con dimensiones específicas
-     # Calcula un ancho dinámico basado en el número de columnas
-    # Asumiendo un ancho estimado de 150 píxeles por columna
-    dynamic_width = len(st.session_state.data.columns) * 500
-    st.dataframe(st.session_state.data, width=dynamic_width)
-
-#########################Dashboard
-elif page == '📊 Dashboard':
-    # Página de visualización de datos
-
-    st.header("Visualización de datos 🚀")
-
-    # Agregando un párrafo debajo del encabezado
-    st.write("Detalle de visualización de los datos ingresados.")
-
-    data = load_data()
-
-    cea_choice = st.sidebar.selectbox('Filtrar por CEA', get_filtered_options('cea', data))
-    # Actualizar data según cea_choice
-    filtered_data = data if cea_choice == 'All' else data[data['cea'] == cea_choice]
-    
-    sala_options = get_filtered_options('sala', filtered_data, 'cea', cea_choice if cea_choice != 'All' else None)
-    sala_choice = st.sidebar.selectbox('Filtrar por Sala', sala_options)
-    # Actualizar data según sala_choice
-    filtered_data = filtered_data if sala_choice == 'All' else filtered_data[filtered_data['sala'] == sala_choice]
-    
-    prueba_options = get_filtered_options('prueba', filtered_data, 'sala', sala_choice if sala_choice != 'All' else None)
-    prueba_choice = st.sidebar.selectbox('Filtrar por Prueba', prueba_options)
-    # Actualizar data según prueba_choice
-    filtered_data = filtered_data if prueba_choice == 'All' else filtered_data[filtered_data['prueba'] == prueba_choice]
-    
-    estado_options = get_filtered_options('estado', filtered_data, 'prueba', prueba_choice if prueba_choice != 'All' else None)
-    estado_choice = st.sidebar.selectbox('Filtrar por Estado', estado_options)
-    # Actualizar data según estado_choice
-    filtered_data = filtered_data if estado_choice == 'All' else filtered_data[filtered_data['estado'] == estado_choice]
-
-    # Muestra el DataFrame con dimensiones específicas
-    #st.dataframe(data, width=5000)
-
-    # Asumiendo un ancho estimado de 150 píxeles por columna
-    #dynamic_width = len(filtered_data.columns) * 150
-    #st.dataframe(filtered_data, width=dynamic_width)
-
-    # Reordenar columnas según el orden específico requerido
-    column_order = ['etiqueta', 'prueba', 'cea', 'estado', 'sala', 'fechasiembre', 'fechainicio', 'fechafinal', 'dieta', 'tratamiento', 'empresa', 'id']
-    # Asegurarse de que todas las columnas estén presentes antes de reordenar
-    if all(col in filtered_data.columns for col in column_order):
-        filtered_data = filtered_data[column_order]
+with p2:
+    st.header("Paso 2: Registro TP por Piscina y generación automática de TN")
+    if not st.session_state.get("piscinas_seleccionadas"):
+        st.warning("Primero selecciona las piscinas en la pestaña 1.")
     else:
-        st.error("Algunas columnas requeridas no están presentes en los datos.")
+        for piscina in st.session_state.piscinas_seleccionadas:
+            with st.expander(f"Piscina {piscina}"):
+                tp = {}
+                tp["Piscina"] = piscina
 
-    # Asumiendo un ancho estimado de 150 píxeles por columna
-    dynamic_width = len(filtered_data.columns) * 150
-    st.dataframe(filtered_data, width=dynamic_width)
+                col1, col2 = st.columns(2)
 
-    ###################################################################################
-    ########################Gráfico de Gantt usando los datos filtrados
-    # Gráfico de Gantt usando los datos filtrados
-    if not filtered_data.empty:
-        filtered_data['cea_prueba'] = "CEA: " + filtered_data['cea'] + " - Prueba: " + filtered_data['prueba']
-        dietas = filtered_data.groupby('cea_prueba')['dieta'].apply(lambda x: ', '.join(x.unique())).reset_index()
-        dietas_dict = {k: f"Dietas:\n{v}\nSala: {filtered_data[filtered_data['cea_prueba'] == k]['sala'].iloc[0]}" for k, v in dietas.set_index('cea_prueba')['dieta'].to_dict().items()}
-        
-        fig = px.timeline(
-            filtered_data,
-            x_start="fechainicio",
-            x_end="fechafinal",
-            y="cea_prueba",
-            title="Timeline de Pruebas",
-            labels={"cea": "CEA", "prueba": "Prueba", "fechainicio": "Fecha Inicio", "fechafinal": "Fecha Final"},
-            color="estado",
-            height=600,
-            width=1000
-        )
-        fig.update_yaxes(categoryorder="total ascending")
+                with col1:
+                    tp["Finca"] = st.text_input(f"Finca {piscina}", "CEA", key=f"finca_{piscina}")
+                    tp["Área (Ha)"] = st.number_input(f"Área (Ha) {piscina}", value=1.63, key=f"area_{piscina}")
+                    tp["Fecha siembra"] = st.date_input(f"Fecha siembra {piscina}", value=datetime(2025, 3, 8), key=f"siembra_{piscina}").strftime("%Y-%m-%d")
+                    tp["Densidad siembra (i/m2)"] = st.number_input(f"Densidad siembra (i/m2) {piscina}", value=23.7, key=f"densidad_{piscina}")
+                    tp["Días ciclo"] = st.number_input(f"Días ciclo {piscina}", value=70, key=f"dias_ciclo_{piscina}")
+                    tp["Peso transferencia (g)"] = st.number_input(f"Peso transferencia (g) {piscina}", value=1.69, key=f"peso_{piscina}")
+                    tp["Costo larva/juvenil ($/millar)"] = st.number_input(f"Costo larva/juvenil ($/millar) {piscina}", value=7.00, key=f"costo_larva_{piscina}")
+                    tp["Múltiplo redondeo alimento"] = st.number_input(f"Múltiplo redondeo alimento {piscina}", value=5, key=f"multiplo_{piscina}")
 
-        for i, row in filtered_data.iterrows():
-            dieta_text = dietas_dict.get(row['cea_prueba'], 'No disponible')
-            fig.add_annotation(
-                x=row['fechafinal'],
-                y=row['cea_prueba'],
-                text=dieta_text,
-                showarrow=False,
-                xshift=50,
-                textangle=0,
-                align='left',
-                font=dict(family="Arial", size=12, color="white")
+                with col2:
+                    tp["Supervivencia a 30 días (%)"] = st.number_input(f"Supervivencia a 30 días (%) {piscina}", value=90.0, key=f"sup_30_{piscina}")
+                    tp["Supervivencia final (%)"] = st.number_input(f"Supervivencia final (%) {piscina}", value=75.0, key=f"sup_final_{piscina}")
+                    tp["Capacidad carga (Lb/Ha)"] = st.number_input(f"Capacidad carga (Lb/Ha) {piscina}", value=7500, key=f"capacidad_{piscina}")
+                    tp["Tabla de alimentación"] = st.text_input(f"Tabla de alimentación {piscina}", "TA 4", key=f"tabla_alim_{piscina}")
+                    tp["Costo fijo ($/Ha/día)"] = st.number_input(f"Costo fijo ($/Ha/día) {piscina}", value=52, key=f"costo_fijo_{piscina}")
+                    tp["Día biometría"] = st.text_input(f"Día biometría {piscina}", "Martes", key=f"biometria_{piscina}")
+                    tp["Fecha actual"] = st.date_input(f"Fecha actual {piscina}", key=f"fecha_actual_{piscina}").strftime("%Y-%m-%d")
+                    tp["Costo insumos proyecto ($/Ha)"] = st.number_input(f"Costo insumos proyecto ($/Ha) {piscina}", value=500.0, key=f"insumos_proj_{piscina}")
+                    tp["Costo insumos real ($/Ha)"] = st.number_input(f"Costo insumos real ($/Ha) {piscina}", value=0.0, key=f"insumos_real_{piscina}")
+
+                st.session_state.datos_tp[piscina] = tp
+
+                #anterior como tabla de columna única
+                #tp["Finca"] = st.text_input(f"Finca {piscina}", "CEA", key=f"finca_{piscina}")
+                #tp["Área (Ha)"] = st.number_input(f"Área (Ha) {piscina}", value=1.63, key=f"area_{piscina}")
+                #tp["Fecha siembra"] = st.date_input(f"Fecha siembra {piscina}", value=datetime(2025, 3, 8), key=f"siembra_{piscina}").strftime("%Y-%m-%d")
+                #tp["Densidad siembra (i/m2)"] = st.number_input(f"Densidad siembra (i/m2) {piscina}", value=23.7, key=f"densidad_{piscina}")
+                #tp["Días ciclo"] = st.number_input(f"Días ciclo {piscina}", value=70, key=f"dias_ciclo_{piscina}")
+                #tp["Peso transferencia (g)"] = st.number_input(f"Peso transferencia (g) {piscina}", value=1.69, key=f"peso_{piscina}")
+                #tp["Costo larva/juvenil ($/millar)"] = st.number_input(f"Costo larva/juvenil ($/millar) {piscina}", value=7.00, key=f"costo_larva_{piscina}")
+                #tp["Múltiplo redondeo alimento"] = st.number_input(f"Múltiplo redondeo alimento {piscina}", value=5, key=f"multiplo_{piscina}")
+                #tp["Supervivencia a 30 días (%)"] = st.number_input(f"Supervivencia a 30 días (%) {piscina}", value=90.0, key=f"sup_30_{piscina}")
+                #tp["Supervivencia final (%)"] = st.number_input(f"Supervivencia final (%) {piscina}", value=75.0, key=f"sup_final_{piscina}")
+                #tp["Capacidad carga (Lb/Ha)"] = st.number_input(f"Capacidad carga (Lb/Ha) {piscina}", value=7500, key=f"capacidad_{piscina}")
+                #tp["Tabla de alimentación"] = st.text_input(f"Tabla de alimentación {piscina}", "TA 4", key=f"tabla_alim_{piscina}")
+                #tp["Costo fijo ($/Ha/día)"] = st.number_input(f"Costo fijo ($/Ha/día) {piscina}", value=52, key=f"costo_fijo_{piscina}")
+                #tp["Día biometría"] = st.text_input(f"Día biometría {piscina}", "Martes", key=f"biometria_{piscina}")
+                #tp["Fecha actual"] = st.date_input(f"Fecha actual {piscina}", key=f"fecha_actual_{piscina}").strftime("%Y-%m-%d")
+                #tp["Costo insumos proyecto ($/Ha)"] = st.number_input(f"Costo insumos proyecto ($/Ha) {piscina}", value=500.0, key=f"insumos_proj_{piscina}")
+                #tp["Costo insumos real ($/Ha)"] = st.number_input(f"Costo insumos real ($/Ha) {piscina}", value=0.0, key=f"insumos_real_{piscina}")
+
+                # Guardar en estado
+                #st.session_state.datos_tp[piscina] = tp
+
+        # Generar TN consolidada
+        tn_generada = [generar_primera_fila_TN(tp) for tp in st.session_state.datos_tp.values()]
+        df_tn = pd.DataFrame(tn_generada)
+
+        #st.subheader("Tabla Nicovita (TN) Generada")
+        #st.dataframe(df_tn, use_container_width=True)
+
+        st.subheader("Visualizar Tabla Nicovita (TN) por Piscina")
+
+        if st.session_state.datos_tp:
+            piscina_seleccionada = st.radio(
+                "Selecciona la piscina para visualizar su TN:",
+                list(st.session_state.datos_tp.keys()),
+                horizontal=True,
+                key="selector_piscina"
             )
 
-            fecha_siembra = row['fechasiembre'].strftime('%Y-%m-%d')  # Formato correcto
-            # Anotaciones de fecha de siembra
-            #fecha_siembra = row['fechasiembre']
-            #if isinstance(fecha_siembra, datetime.datetime):
-            #    fecha_siembra = fecha_siembra.strftime('%Y-%m-%d')
-            #else:
-            #    try:
-            #        fecha_siembra = datetime.datetime.strptime(fecha_siembra, '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d')
-            #    except ValueError:
-            #        pass  # Ignora errores si la fecha está mal formateada o ya está correcta
+            tp = st.session_state.datos_tp[piscina_seleccionada]
+            df_tn = pd.DataFrame([generar_primera_fila_TN(tp)])
+            st.dataframe(df_tn, use_container_width=True)
 
-            fig.add_trace(go.Scatter(
-                x=[fecha_siembra],
-                y=[row['cea_prueba']],
-                text=[f"Siembra: {fecha_siembra}"],
-                mode='markers+text',
-                marker=dict(size=12, color='gold'),
-                textposition="top center",
-                textfont=dict(family="Arial", size=10, color="white"),
-                showlegend=False
-            ))
+#Tabla de alimentacion (tabla numérica)
 
-        fig.update_layout(
-            xaxis_title='Fecha',
-            yaxis_title='CEA - Prueba',
-            legend_title="Estado",
-            showlegend=True
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.write("No hay datos para mostrar en el gráfico de Gantt.")
-
-####################################################################################
-####pages
-
-elif page == '🌍 Disponibilidad de salas':
-
-    # Cargar datos y configurar fecha actual
-    data = load_data()
-    today = pd.Timestamp.now()
-    # Diccionario que mapea CEAs a sus salas correspondientes
-    cea_to_salas = {
-        "Tumbes": ["a", "b", "c", "d", "e", "s8t"],
-        "Trujillo": ["trujillo"],
-        "UCSUR": ["ucsur"]
-    }
-
-    # Obtener datos de disponibilidad de salas
-    availability_data = check_sala_availability(data, cea_to_salas, today)
-
-    # Seleccionar CEA y filtrar salas disponibles
-    #cea = st.selectbox("Seleccione el CEA", list(cea_to_salas.keys()))
-    #filtered_salas = availability_data[(availability_data['cea'] == cea) & (availability_data['disponible'] == 'Disponible')]
-
-    #st.write("Salas disponibles en", cea)
-    #st.dataframe(filtered_salas[['sala', 'estado', 'disponible']])
-
-    ########################################################################
-    # Obtener las últimas fechas de prueba y fusionarlas con los datos de disponibilidad
-    last_test_dates = get_last_test_dates(data)
-    extended_availability_data = pd.merge(availability_data, last_test_dates, on='sala', how='left')
-
-    # Seleccionar CEA y filtrar salas disponibles
-    # Seleccionar CEA y filtrar salas disponibles
-    cea = st.selectbox("Seleccione el CEA", list(cea_to_salas.keys()), key='cea_select_box')
-
-    filtered_salas = extended_availability_data[(extended_availability_data['cea'] == cea)]
-
-    # Mostrar las salas disponibles
-    st.write("Salas disponibles en", cea)
-    st.dataframe(filtered_salas[['sala', 'estado', 'disponible','fecha_inicio_ultima_prueba', 'fecha_ultima_prueba','prueba','etiqueta']])
+# Crear DataFrame de ejemplo con datos de la tabla de alimentación
+with p3:
+    st.header("Tabla de Alimentación por Peso")
     
+    pesos = [round(0.1 * i, 2) for i in range(1, 46)]
+    ta1 = ["10.40%", "10.20%", "10.00%", "9.82%", "9.63%", "9.46%", "9.29%", "9.13%", "8.98%", "8.83%", 
+           "8.68%", "8.54%", "8.41%", "8.28%", "8.16%", "8.04%", "7.93%", "7.82%", "7.71%", "7.61%", 
+           "7.52%", "7.42%", "7.33%", "7.25%", "7.16%", "7.08%", "7.01%", "6.93%", "6.86%", "6.79%", 
+           "6.73%", "6.66%", "6.60%", "6.55%", "6.49%", "6.44%", "6.38%", "6.33%", "6.29%", "6.24%", 
+           "6.20%", "6.15%", "6.11%", "6.07%", "6.04%"]
+    ta2 = ["9.15%", "8.98%", "8.80%", "8.64%", "8.48%", "8.32%", "8.18%", "8.04%", "7.90%", "7.77%", 
+           "7.64%", "7.52%", "7.40%", "7.29%", "7.18%", "7.08%", "6.98%", "6.88%", "6.79%", "6.70%", 
+           "6.61%", "6.53%", "6.45%", "6.38%", "6.30%", "6.23%", "6.17%", "6.10%", "6.04%", "5.98%", 
+           "5.92%", "5.86%", "5.81%", "5.76%", "5.71%", "5.66%", "5.62%", "5.57%", "5.53%", "5.49%", 
+           "5.45%", "5.42%", "5.38%", "5.35%", "5.31%"]
+    ta3 = ta2  # usa la misma lista si son iguales, o reemplaza por su versión real si son distintas
+    ta4 = ["9.83%", "9.68%", "9.49%", "9.31%", "9.14%", "8.97%", "8.81%", "8.65%", "8.51%", "8.36%",
+           "8.23%", "8.09%", "7.97%", "7.84%", "7.73%", "7.61%", "7.50%", "7.40%", "7.30%", "7.20%",
+           "7.11%", "7.02%", "6.93%", "6.85%", "6.77%", "6.69%", "6.62%", "6.55%", "6.48%", "6.42%",
+           "6.35%", "6.29%", "6.23%", "6.18%", "6.12%", "6.07%", "6.02%", "5.98%", "5.93%", "5.89%",
+           "5.84%", "5.80%", "5.76%", "5.73%", "5.69%"]
+    ta5 = ["11.83%", "10.69%", "10.03%", "9.56%", "9.19%", "8.89%", "8.64%", "8.42%", "8.23%", "8.06%",
+           "7.90%", "7.76%", "7.63%", "7.51%", "7.39%", "7.29%", "7.19%", "7.10%", "7.01%", "6.92%",
+           "6.84%", "6.77%", "6.69%", "6.62%", "6.56%", "6.49%", "6.43%", "6.37%", "6.31%", "6.26%",
+           "6.21%", "6.15%", "6.10%", "6.05%", "6.01%", "5.96%", "5.92%", "5.87%", "5.83%", "5.79%",
+           "5.75%", "5.71%", "5.67%", "5.63%", "5.60%"]
 
-    #####################################GRAFICO
+    df_alimentacion = pd.DataFrame({
+        "Pesos": pesos,
+        "TA 1": ta1,
+        "TA 2": ta2,
+        "TA 3": ta3,
+        "TA 4": ta4,
+        "TA 5": ta5
+    })
 
-    import matplotlib.pyplot as plt
-    import pandas as pd
-    import streamlit as st
+    st.dataframe(df_alimentacion, use_container_width=True)
 
-    # Agrupar los datos por CEA y estado para contar las salas
-    # Agrupar los datos por CEA y estado para contar las salas
-   # Agrupar los datos por CEA y estado para contar las salas
-    status_counts = availability_data.groupby(['cea', 'estado']).size().unstack(fill_value=0)
-
-    # Definir una paleta de colores personalizada para los estados
-    colors = {
-        'Disponible': 'green',
-        'Libre': 'lightgreen',
-        'No Disponible': 'red',
-        'Programado': 'orange',
-        'En curso': 'blue',
-        'Finalizado': 'gray'
-    }
-
-    # Crear la figura con Plotly
-    fig = go.Figure()
-
-    # Añadir una barra para cada estado con etiquetas de datos y colores personalizados
-    for estado in status_counts.columns:
-        fig.add_trace(go.Bar(
-            x=status_counts.index,
-            y=status_counts[estado],
-            name=estado,
-            text=status_counts[estado],  # Añadir texto de las etiquetas
-            textposition='inside',
-            textfont=dict(size=14),  # Aumentar el tamaño de la fuente de las etiquetas de datos
-            marker_color=colors.get(estado, 'black')  # Asignar colores personalizados
-        ))
-
-    # Actualizar el diseño para hacer las barras apiladas
-    fig.update_layout(
-        barmode='stack',
-        title='Disponibilidad de Salas por CEA',
-        xaxis_title='CEA',
-        yaxis_title='Número de Salas',
-        legend_title='Estado'
-    )
-
-    # Mostrar el gráfico en Streamlit
-    st.plotly_chart(fig)
+with p4:
+    st.header("TN Consolidada")
+    
+    if st.session_state.datos_tp:
+        tn_consolidada = [generar_primera_fila_TN(tp) for tp in st.session_state.datos_tp.values()]
+        df_consolidada = pd.DataFrame(tn_consolidada)
+        st.dataframe(df_consolidada, use_container_width=True)
+    else:
+        st.info("Aún no se han registrado datos en ninguna piscina."))
